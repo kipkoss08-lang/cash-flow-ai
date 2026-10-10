@@ -321,9 +321,9 @@ class RealMarketDataApiClient(
                 for (i in 0 until closeArr.length()) {
                     if (closeArr.isNull(i)) continue
                     val close = closeArr.getDouble(i)
-                    val open = if (i < openArr?.length() ?: 0 && !openArr.isNull(i)) openArr.getDouble(i) else close
-                    val hi = if (i < highArr?.length() ?: 0 && !highArr.isNull(i)) highArr.getDouble(i) else close
-                    val lo = if (i < lowArr?.length() ?: 0 && !lowArr.isNull(i)) lowArr.getDouble(i) else close
+                    val open = if (openArr != null && i < openArr.length() && !openArr.isNull(i)) openArr.getDouble(i) else close
+                    val hi = if (highArr != null && i < highArr.length() && !highArr.isNull(i)) highArr.getDouble(i) else close
+                    val lo = if (lowArr != null && i < lowArr.length() && !lowArr.isNull(i)) lowArr.getDouble(i) else close
                     val ts = timestampsArr.getLong(i) * 1000L
                     candles.add(PriceCandlestick(ts, open, hi, lo, close, null))
                 }

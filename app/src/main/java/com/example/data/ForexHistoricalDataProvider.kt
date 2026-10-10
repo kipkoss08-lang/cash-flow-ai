@@ -30,7 +30,7 @@ import kotlin.math.abs
  * - Insufficient historical candles
  * - Candles too stale for timeframe
  */
-class ForexHistoricalDataProvider(
+open class ForexHistoricalDataProvider(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
@@ -45,7 +45,7 @@ class ForexHistoricalDataProvider(
      * @param limit Maximum candles to return (1-500)
      * @return PriceHistoryResult.Success with validated real candles, or Failure with reason
      */
-    suspend fun fetchForexHistory(
+    open suspend fun fetchForexHistory(
         symbol: String,
         timeframe: String = "1h",
         limit: Int = 120

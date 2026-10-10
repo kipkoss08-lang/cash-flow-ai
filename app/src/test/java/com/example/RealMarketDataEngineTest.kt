@@ -1,12 +1,14 @@
-package com.example
-
 import com.example.data.GenuineMarketDataValidator
 import com.example.data.GenuineMarketQuote
+import com.example.data.ForexHistoricalDataProvider
 import com.example.data.MarketAsset
 import com.example.data.MarketCategory
 import com.example.data.MarketConnectionState
 import com.example.data.MarketFetchResult
 import com.example.data.MarketUniverse
+import com.example.data.PriceCandlestick
+import com.example.data.PriceDataSource
+import com.example.data.PriceHistoryResult
 import com.example.data.RealMarketDataApiClient
 import com.example.data.RealMarketDataEngine
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -133,15 +135,13 @@ class RealMarketDataEngineTest {
                     )
                 }
                 url.contains("binance.com/api/v3/klines") -> {
-                    createJsonResponse(
-                        req,
-                        """
-                        [
-                            [1700000000000,"82000","82500","81800","82400","100",1700003600000,"8240000",50,"50","4120000","0"],
-                            [1700003600000,"82400","83200","82300","83150.25","120",1700007200000,"9900000",60,"60","4950000","0"]
-                        ]
-                        """.trimIndent()
-                    )
+                    val klinesList = (1..60).map { i ->
+                        val ts = 1700000000000L + (i * 3600000L)
+                        val p = 82000.0 + (i * 15.0)
+                        "[$ts,\"$p\",\"${p + 200}\",\"${p - 200}\",\"${p + 50}\",\"100\",${ts + 3600000L},\"8240000\",50,\"50\",\"4120000\",\"0\"]"
+                    }
+                    val klinesJson = "[" + klinesList.joinToString(",") + "]"
+                    createJsonResponse(req, klinesJson)
                 }
                 url.contains("open.er-api.com/v6/latest/USD") -> {
                     createJsonResponse(
@@ -160,6 +160,10 @@ class RealMarketDataEngineTest {
                     )
                 }
                 url.contains("finance.yahoo.com/v8/finance/chart") -> {
+                    val closesList = (1..60).map { 220.0 + it * 0.2 }
+                    val timestampsList = (1..60).map { currentTimeSec - (60 - it) * 3600 }
+                    val closesJson = closesList.joinToString(",")
+                    val timestampsJson = timestampsList.joinToString(",")
                     createJsonResponse(
                         req,
                         """
@@ -175,9 +179,15 @@ class RealMarketDataEngineTest {
                                             "regularMarketVolume": 85000000,
                                             "regularMarketTime": $currentTimeSec
                                         },
+                                        "timestamp": [$timestampsJson],
                                         "indicators": {
                                             "quote": [
-                                                { "close": [228.0, 229.5, 230.5] }
+                                                { 
+                                                    "open": [$closesJson],
+                                                    "high": [$closesJson],
+                                                    "low": [$closesJson],
+                                                    "close": [$closesJson] 
+                                                }
                                             ]
                                         }
                                     }
@@ -208,7 +218,24 @@ class RealMarketDataEngineTest {
             }
         }
 
-        val apiClient = RealMarketDataApiClient(mockHttpClient)
+        // Create a mock forex provider that returns valid test candles
+        val mockForexProvider = object : ForexHistoricalDataProvider() {
+            override suspend fun fetchForexHistory(
+                symbol: String,
+                timeframe: String,
+                limit: Int
+            ): PriceHistoryResult {
+                val now = System.currentTimeMillis()
+                val candles = (0 until 60).map { i ->
+                    val ts = now - (60 - i) * 3600000L
+                    val price = 1.1200 + i * 0.0001
+                    PriceCandlestick(ts, price, price + 0.0005, price - 0.0005, price)
+                }
+                return PriceHistoryResult.Success(symbol, timeframe, candles, PriceDataSource.TEST_DATA, now)
+            }
+        }
+
+        val apiClient = RealMarketDataApiClient(mockHttpClient, mockForexProvider)
         val engine = RealMarketDataEngine(scope = testScope, apiClient = apiClient)
 
         engine.fetchRealMarketDataOnce()
@@ -225,8 +252,7 @@ class RealMarketDataEngineTest {
         assertTrue(btcQuote.lastUpdatedTimestamp > 0L)
 
         val eurQuote = engine.getQuoteForSymbol("EUR/USD")
-        val expectedEur = 1.0 / 0.8928
-        assertEquals(expectedEur, eurQuote.lastPrice, 0.001)
+        assertEquals(1.1259, eurQuote.lastPrice, 0.0001)
 
         val nvdaQuote = engine.getQuoteForSymbol("NVDA")
         assertEquals(230.50, nvdaQuote.lastPrice, 0.01)
