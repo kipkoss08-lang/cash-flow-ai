@@ -8,7 +8,7 @@ class SignalEngine {
      * Calculates Relative Strength Index (RSI) for a list of close prices over specified period (default 14).
      */
     fun calculateRSI(prices: List<Double>, period: Int = 14): Double {
-        if (prices.size < period + 1) return 50.0
+        if (prices.size < period + 1) return 0.0
 
         var gains = 0.0
         var losses = 0.0
@@ -152,7 +152,15 @@ class SignalEngine {
      */
     fun generateSignal(symbol: String = "BTC/USD", priceHistory: List<Double>? = null): TradingSignal {
         val asset = MarketUniverse.findAssetBySymbol(symbol)
-        val prices = priceHistory ?: generatePriceSeriesForAsset(asset)
+
+        // Move 2A: Eliminate synthetic signal generation.
+        // If genuine, valid market history is unavailable, return explicit WAIT/unavailable result.
+        // Never fabricate candles, indicators, confidence values, or trading signals.
+        if (priceHistory == null || priceHistory.size < 5 || priceHistory.any { it <= 0.0 || it.isNaN() || it.isInfinite() }) {
+            return createUnavailableWaitSignal(asset)
+        }
+
+        val prices = priceHistory
 
         val opens = prices.mapIndexed { idx, p -> if (idx == 0) p else prices[idx - 1] }
         val closes = prices
@@ -301,25 +309,31 @@ class SignalEngine {
         }
     }
 
+    private fun createUnavailableWaitSignal(asset: MarketAsset): TradingSignal {
+        return TradingSignal(
+            symbol = asset.symbol,
+            signalType = "WAIT",
+            confidencePercentage = 0,
+            entryPrice = 0.0,
+            stopLoss = 0.0,
+            takeProfit = 0.0,
+            analysisReason = "Genuine market data unavailable: Insufficient or invalid price history for technical analysis.",
+            timestamp = System.currentTimeMillis(),
+            rsiValue = 0.0,
+            macdSignal = "INSUFFICIENT DATA",
+            emaTrend = "INSUFFICIENT DATA",
+            candlePattern = "Awaiting Real Market Data",
+            momentumConfirmation = "NO DATA",
+            isStrongSignal = false
+        )
+    }
+
+    @Deprecated("Synthetic price generation removed from production signal paths", ReplaceWith("emptyList()"))
     fun generatePriceSeriesForAsset(asset: MarketAsset): List<Double> {
-        val series = mutableListOf<Double>()
-        var base = asset.basePrice
-        val scale = when (asset.category) {
-            MarketCategory.FOREX -> 0.0004
-            MarketCategory.GOLD -> 1.5
-            MarketCategory.CRYPTO -> 80.0
-            MarketCategory.STOCKS -> 0.8
-            MarketCategory.ALL_MARKETS -> 1.0
-        }
-        for (i in 0 until 50) {
-            val delta = (Math.sin(i * 0.2) * 1.2 + (if (i > 30) (i - 30) * 0.3 else -(i * 0.1))) * scale
-            base += delta
-            series.add(base)
-        }
-        return series
+        return emptyList()
     }
 
     private fun generateDefaultPriceSeries(): List<Double> {
-        return generatePriceSeriesForAsset(MarketUniverse.BTC_USD)
+        return emptyList()
     }
 }

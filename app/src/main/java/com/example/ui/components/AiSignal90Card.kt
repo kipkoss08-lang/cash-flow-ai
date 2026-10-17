@@ -309,7 +309,10 @@ fun AiSignal90Card(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    IndicatorBadge(name = "RSI (14)", detail = "${String.format("%.1f", signal.rsiValue)} - ${if (signal.rsiValue <= 35) "Oversold" else if (signal.rsiValue >= 65) "Overbought" else "Neutral"}")
+                    IndicatorBadge(
+                        name = "RSI (14)",
+                        detail = if (signal.rsiValue <= 0.0) "INSUFFICIENT DATA" else "${String.format("%.1f", signal.rsiValue)} - ${if (signal.rsiValue <= 35) "Oversold" else if (signal.rsiValue >= 65) "Overbought" else "Neutral"}"
+                    )
                     IndicatorBadge(name = "MACD", detail = signal.macdSignal)
                     IndicatorBadge(name = "EMA Trend", detail = signal.emaTrend)
                     IndicatorBadge(name = "Candle Pattern", detail = signal.candlePattern)

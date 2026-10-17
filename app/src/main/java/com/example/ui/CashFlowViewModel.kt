@@ -420,40 +420,57 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                 }
 
                 val engine = aiSignalRepository.getEngine()
+                var persistedCount = 0
                 assetsToScan.forEach { asset ->
-                    val sig = engine.generateSignal(asset.symbol)
-                    val entity = TradingSignalEntity(
-                        timestamp = System.currentTimeMillis(),
-                        symbol = sig.symbol,
-                        timeframe = "15m",
-                        action = sig.signalType,
-                        confidenceScore = sig.confidencePercentage,
-                        reasoning = sig.analysisReason,
-                        entryZone = if (asset.decimalDigits == 4) String.format(java.util.Locale.US, "%.4f", sig.entryPrice) else String.format(java.util.Locale.US, "$%.2f", sig.entryPrice),
-                        stopLoss = if (asset.decimalDigits == 4) String.format(java.util.Locale.US, "%.4f", sig.stopLoss) else String.format(java.util.Locale.US, "$%.2f", sig.stopLoss),
-                        takeProfit = if (asset.decimalDigits == 4) String.format(java.util.Locale.US, "%.4f", sig.takeProfit) else String.format(java.util.Locale.US, "$%.2f", sig.takeProfit),
-                        riskRewardRatio = "1:2.8",
-                        trendDirection = if (sig.signalType == "SELL") "BEARISH" else "BULLISH",
-                        detectedPatterns = sig.candlePattern,
-                        keyLevels = "Support: ${sig.stopLoss} | Resistance: ${sig.takeProfit} | Market: ${asset.category.shortName}",
-                        source = "SCAN_CONFIRMED_MARKETS"
-                    )
-                    repository.insertSignal(entity)
+                    val quote = marketDataEngine.getQuoteForSymbol(asset.symbol)
+                    val isHistoryValid = quote.lastPrice > 0.0 &&
+                        quote.lastUpdatedTimestamp > 0L &&
+                        quote.recentCloses.size >= 5 &&
+                        quote.recentCloses.all { it > 0.0 && !it.isNaN() && !it.isInfinite() }
 
-                    // If auto-trading is enabled for this category, execute
-                    val broker = activeBrokerAccount.value
-                    val allowed = when (_autoTradeMarketUniverse.value) {
-                        MarketCategory.ALL_MARKETS -> true
-                        MarketCategory.FOREX -> asset.category == MarketCategory.FOREX
-                        MarketCategory.GOLD -> asset.category == MarketCategory.GOLD
-                        MarketCategory.CRYPTO -> asset.category == MarketCategory.CRYPTO
-                        MarketCategory.STOCKS -> asset.category == MarketCategory.STOCKS
-                    }
-                    if (broker != null && broker.autoTradeEnabled && broker.isConnected && allowed && entity.action != "WAIT" && entity.confidenceScore >= broker.minConfidenceThreshold) {
-                        executeSignalOnBroker(entity)
+                    val priceHistory = if (isHistoryValid) quote.recentCloses else null
+                    val sig = engine.generateSignal(asset.symbol, priceHistory)
+
+                    // Prevent batch scanning from persisting an actionable signal when market history is absent or invalid
+                    if (isHistoryValid && sig.signalType != "WAIT" && sig.confidencePercentage > 0 && sig.entryPrice > 0.0) {
+                        val entity = TradingSignalEntity(
+                            timestamp = System.currentTimeMillis(),
+                            symbol = sig.symbol,
+                            timeframe = "15m",
+                            action = sig.signalType,
+                            confidenceScore = sig.confidencePercentage,
+                            reasoning = sig.analysisReason,
+                            entryZone = if (asset.decimalDigits == 4) String.format(java.util.Locale.US, "%.4f", sig.entryPrice) else String.format(java.util.Locale.US, "$%.2f", sig.entryPrice),
+                            stopLoss = if (asset.decimalDigits == 4) String.format(java.util.Locale.US, "%.4f", sig.stopLoss) else String.format(java.util.Locale.US, "$%.2f", sig.stopLoss),
+                            takeProfit = if (asset.decimalDigits == 4) String.format(java.util.Locale.US, "%.4f", sig.takeProfit) else String.format(java.util.Locale.US, "$%.2f", sig.takeProfit),
+                            riskRewardRatio = "1:2.8",
+                            trendDirection = if (sig.signalType == "SELL") "BEARISH" else "BULLISH",
+                            detectedPatterns = sig.candlePattern,
+                            keyLevels = "Support: ${sig.stopLoss} | Resistance: ${sig.takeProfit} | Market: ${asset.category.shortName}",
+                            source = "SCAN_CONFIRMED_MARKETS"
+                        )
+                        repository.insertSignal(entity)
+                        persistedCount++
+
+                        // If auto-trading is enabled for this category, execute
+                        val broker = activeBrokerAccount.value
+                        val allowed = when (_autoTradeMarketUniverse.value) {
+                            MarketCategory.ALL_MARKETS -> true
+                            MarketCategory.FOREX -> asset.category == MarketCategory.FOREX
+                            MarketCategory.GOLD -> asset.category == MarketCategory.GOLD
+                            MarketCategory.CRYPTO -> asset.category == MarketCategory.CRYPTO
+                            MarketCategory.STOCKS -> asset.category == MarketCategory.STOCKS
+                        }
+                        if (broker != null && broker.autoTradeEnabled && broker.isConnected && allowed && entity.action != "WAIT" && entity.confidenceScore >= broker.minConfidenceThreshold) {
+                            executeSignalOnBroker(entity)
+                        }
                     }
                 }
-                _brokerFeedbackMessage.value = "Scanned ${assetsToScan.size} confirmed market instruments across ${_selectedMarketCategory.value.shortName}!"
+                _brokerFeedbackMessage.value = if (persistedCount > 0) {
+                    "Scanned ${assetsToScan.size} instruments across ${_selectedMarketCategory.value.shortName}. Generated $persistedCount verified signals."
+                } else {
+                    "Scanned ${assetsToScan.size} instruments across ${_selectedMarketCategory.value.shortName}. No actionable signals on available market data."
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
@@ -589,11 +606,20 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
 
     fun recalculateHighConfidenceSignal(symbol: String = "BTC/USD") {
         viewModelScope.launch {
-            aiSignalRepository.generateSignal(symbol)
+            val quote = marketDataEngine.getQuoteForSymbol(symbol)
+            val isHistoryValid = quote.lastPrice > 0.0 &&
+                quote.lastUpdatedTimestamp > 0L &&
+                quote.recentCloses.size >= 5 &&
+                quote.recentCloses.all { it > 0.0 && !it.isNaN() && !it.isInfinite() }
+            val priceHistory = if (isHistoryValid) quote.recentCloses else null
+            aiSignalRepository.generateSignal(symbol, priceHistory)
         }
     }
 
     fun convertAiSignalToJournalEntry(signal: TradingSignal) {
+        if (signal.signalType == "WAIT" || signal.confidencePercentage <= 0 || signal.entryPrice <= 0.0) {
+            return
+        }
         viewModelScope.launch {
             val trade = TradeJournalEntity(
                 assetSymbol = signal.symbol,
