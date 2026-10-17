@@ -322,7 +322,7 @@ private fun BrokerHeaderCard(
 ) {
     val isConnected = connectionStatus.startsWith("CONNECTED")
     val statusColor = when (connectionStatus) {
-        "CONNECTED_LIVE" -> Color(0xFF00E676)
+        "CONNECTED_LIVE", "CONNECTED_PAPER" -> Color(0xFF00E5FF)
         "CONNECTED_DEMO" -> Color(0xFF00E5FF)
         "CONNECTING" -> Color(0xFFFFB300)
         "ERROR" -> Color(0xFFFF5252)
@@ -394,8 +394,8 @@ private fun BrokerHeaderCard(
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = when (connectionStatus) {
-                                    "CONNECTED_LIVE" -> "LIVE ACTIVE"
-                                    "CONNECTED_DEMO" -> "DEMO ACTIVE"
+                                    "CONNECTED_LIVE", "CONNECTED_PAPER" -> "PAPER ACTIVE (SIMULATED)"
+                                    "CONNECTED_DEMO" -> "DEMO ACTIVE (SIMULATED)"
                                     "CONNECTING" -> "CONNECTING..."
                                     "ERROR" -> "AUTH ERROR"
                                     else -> "STANDBY"
@@ -653,17 +653,17 @@ private fun BrokerAccountCard(
                     Spacer(modifier = Modifier.width(8.dp))
 
                     Surface(
-                        color = if (account.environment == "LIVE") Color(0xFFFF5252).copy(alpha = 0.2f) else Color(0xFF00E5FF).copy(alpha = 0.2f),
+                        color = Color(0xFF00E5FF).copy(alpha = 0.2f),
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
-                            text = account.environment,
+                            text = if (account.environment == "LIVE") "PAPER (SIMULATED)" else "DEMO (SIMULATED)",
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace
                             ),
-                            color = if (account.environment == "LIVE") Color(0xFFFF5252) else Color(0xFF00E5FF)
+                            color = Color(0xFF00E5FF)
                         )
                     }
                 }
@@ -1498,8 +1498,8 @@ private fun BrokerAccountEditDialog(
                     FilterChip(
                         selected = env == "LIVE",
                         onClick = { env = "LIVE" },
-                        label = { Text("LIVE REAL MONEY") },
-                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFFFF5252).copy(alpha = 0.2f), selectedLabelColor = Color(0xFFFF5252)),
+                        label = { Text("SIMULATED PAPER SANDBOX") },
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF00E5FF).copy(alpha = 0.2f), selectedLabelColor = Color(0xFF00E5FF)),
                         modifier = Modifier.weight(1f)
                     )
                 }

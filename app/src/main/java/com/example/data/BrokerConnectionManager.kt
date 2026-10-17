@@ -82,10 +82,10 @@ class BrokerConnectionManager(
 
             if (success) {
                 _connectedAccount.value = account.copy(isConnected = true)
-                _connectionStatus.value = if (isDemo) "CONNECTED_DEMO" else "CONNECTED_LIVE"
+                _connectionStatus.value = if (isDemo) "CONNECTED_DEMO" else "CONNECTED_PAPER"
                 _currentPingMs.value = Random.nextLong(18, 45)
 
-                val msg = "Connected to ${account.brokerType} (${if (isDemo) "Demo/Practice" else "LIVE"}). Account ID: ${account.accountId}"
+                val msg = "Connected to ${account.brokerType} (Paper / Simulated Sandbox). Account ID: ${account.accountId}"
                 addLog(account.brokerType, "CONNECT", msg, true)
                 startHeartbeat(account.brokerType)
                 onComplete(true, msg)
@@ -137,8 +137,56 @@ class BrokerConnectionManager(
             val brokerName = account?.brokerType ?: "PAPER_TRADING"
             val accountId = account?.accountId ?: "VIRTUAL-001"
 
-            addLog(brokerName, "ORDER_REQUEST", "Routing $side $volume lots on $symbol @ $entryPrice (SL: $stopLoss, TP: $takeProfit)...")
-            delay(350) // Network roundtrip to broker engine
+            // 1. Validate entryPrice
+            if (entryPrice <= 0.0 || entryPrice.isNaN() || entryPrice.isInfinite()) {
+                val err = "Execution rejected: Invalid entry price ($entryPrice). Price must be positive and finite."
+                addLog(brokerName, "ORDER_REJECTED", err, false)
+                onComplete(false, err, null)
+                return@launch
+            }
+
+            // 2. Validate volume
+            if (volume <= 0.0 || volume.isNaN() || volume.isInfinite()) {
+                val err = "Execution rejected: Invalid volume ($volume). Volume must be positive and finite."
+                addLog(brokerName, "ORDER_REJECTED", err, false)
+                onComplete(false, err, null)
+                return@launch
+            }
+
+            // 3. Validate stop-loss and take-profit
+            if (stopLoss <= 0.0 || stopLoss.isNaN() || stopLoss.isInfinite() ||
+                takeProfit <= 0.0 || takeProfit.isNaN() || takeProfit.isInfinite()) {
+                val err = "Execution rejected: Invalid stop-loss ($stopLoss) or take-profit ($takeProfit). Levels must be positive and finite."
+                addLog(brokerName, "ORDER_REJECTED", err, false)
+                onComplete(false, err, null)
+                return@launch
+            }
+
+            // 4. Validate brackets per existing trade model
+            val normalizedSide = side.trim().uppercase()
+            if (normalizedSide == "BUY") {
+                if (stopLoss >= entryPrice || takeProfit <= entryPrice) {
+                    val err = "Execution rejected: Invalid BUY brackets. Stop-loss ($stopLoss) must be below entry ($entryPrice) and take-profit ($takeProfit) above entry."
+                    addLog(brokerName, "ORDER_REJECTED", err, false)
+                    onComplete(false, err, null)
+                    return@launch
+                }
+            } else if (normalizedSide == "SELL") {
+                if (stopLoss <= entryPrice || takeProfit >= entryPrice) {
+                    val err = "Execution rejected: Invalid SELL brackets. Stop-loss ($stopLoss) must be above entry ($entryPrice) and take-profit ($takeProfit) below entry."
+                    addLog(brokerName, "ORDER_REJECTED", err, false)
+                    onComplete(false, err, null)
+                    return@launch
+                }
+            } else {
+                val err = "Execution rejected: Unsupported trade action ($side). Only BUY or SELL can be executed."
+                addLog(brokerName, "ORDER_REJECTED", err, false)
+                onComplete(false, err, null)
+                return@launch
+            }
+
+            addLog(brokerName, "ORDER_REQUEST", "[PAPER] Routing $side $volume lots on $symbol @ $entryPrice (SL: $stopLoss, TP: $takeProfit)...")
+            delay(350) // Network roundtrip to simulated paper engine
 
             val ticket = "TKT-${Random.nextInt(100000, 999999)}"
             val position = BrokerPosition(

@@ -844,11 +844,16 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun executeSignalOnBroker(signal: TradingSignalEntity, overrideVolume: Double? = null) {
+        val entryPrice = parseValidPriceOrNull(signal.entryZone)
+        if (entryPrice == null) {
+            _brokerFeedbackMessage.value = "Execution rejected: Invalid or unparseable entry price (${signal.entryZone})."
+            return
+        }
+
         val active = activeBrokerAccount.value
         val volume = overrideVolume ?: active?.defaultLotSize ?: 0.10
-        val entryPrice = parsePriceOrFallback(signal.entryZone, 1.0850)
-        val slPrice = parsePriceOrFallback(signal.stopLoss, entryPrice * 0.99)
-        val tpPrice = parsePriceOrFallback(signal.takeProfit, entryPrice * 1.02)
+        val slPrice = parseValidPriceOrNull(signal.stopLoss) ?: if (signal.action == "SELL") entryPrice * 1.01 else entryPrice * 0.99
+        val tpPrice = parseValidPriceOrNull(signal.takeProfit) ?: if (signal.action == "SELL") entryPrice * 0.98 else entryPrice * 1.02
 
         brokerConnectionManager.executeTrade(
             symbol = signal.symbol,
@@ -1052,12 +1057,13 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
-    private fun parsePriceOrFallback(raw: String, fallback: Double): Double {
+    private fun parseValidPriceOrNull(raw: String): Double? {
         return try {
             val cleaned = raw.replace(Regex("[^0-9.]"), "")
-            cleaned.toDoubleOrNull() ?: fallback
-        } catch (e: Exception) {
-            fallback
+            val parsed = cleaned.toDoubleOrNull()
+            if (parsed != null && parsed > 0.0 && !parsed.isNaN() && !parsed.isInfinite()) parsed else null
+        } catch (_: Exception) {
+            null
         }
     }
 }
